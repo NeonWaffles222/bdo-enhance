@@ -1,21 +1,49 @@
 const { PrismaClient } = require('@prisma/client');
+const { log } = require('console');
 
 const prisma = new PrismaClient();
 
+
 async function main() {
-  await prisma.marketItem.upsert({
-    where: { id: 1 },
-    update: {},
-    create: {
-      id: 1,
-      name: "test",
-      current_stock: 10,
-      total_trades: 5,
-      base_price: 100,
-      main_category: 1,
-      sub_category: 1,
-    },
-  });
+
+  // await prisma.marketItem.deleteMany();
+
+  let items = [];
+
+  console.log("Fetching Market Items...");
+
+  await fetch('https://api.arsha.io/v2/na/market', { method: 'GET' })
+    .then(res => res.text())
+    .then(result => JSON.parse(result))
+    .then(data => {
+      for (let item of data) {
+        items.push(item);
+      }
+    })
+    .catch(err => {
+      console.error("An error occurred while attempting to fetch item data:", err);
+    });
+
+  console.log("Seeding Market Items...");
+
+  for (let item of items) {
+    console.log("Seeding item: ", item.name);
+    await prisma.marketItem.upsert({
+      where: { id: item.id },
+      update: {},
+      create: {
+        id: item.id,
+        name: item.name,
+        current_stock: item.currentStock,
+        total_trades: item.totalTrades,
+        base_price: item.basePrice,
+        main_category: item.mainCategory,
+        sub_category: item.subCategory,
+      },
+    });
+
+  }
+
 };
 
 main();

@@ -10,9 +10,9 @@ datasource db {
 model MarketItem {
   id            Int    @id @unique
   name          String
-  current_stock Int
-  total_trades  Int
-  base_price    Int
+  current_stock BigInt
+  total_trades  BigInt
+  base_price    BigInt
   main_category Int
   sub_category  Int
 

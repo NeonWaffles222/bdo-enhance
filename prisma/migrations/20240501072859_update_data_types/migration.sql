@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "market_items" ALTER COLUMN "current_stock" SET DATA TYPE BIGINT,
+ALTER COLUMN "total_trades" SET DATA TYPE BIGINT,
+ALTER COLUMN "base_price" SET DATA TYPE BIGINT;
