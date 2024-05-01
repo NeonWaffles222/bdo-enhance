@@ -7,3 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model MarketItem {
+  id            Int    @id @unique
+  name          String
+  current_stock Int
+  total_trades  Int
+  base_price    Int
+  main_category Int
+  sub_category  Int
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("market_items")
+}
