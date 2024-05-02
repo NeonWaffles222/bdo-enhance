@@ -26,7 +26,7 @@ async function main() {
   console.log("Seeding Market Items...");
 
   for (let item of items) {
-    console.log("Seeding item: ", item.name);
+    // console.log("Seeding item: ", item.name);
     await prisma.marketItem.upsert({
       where: { id: item.id },
       update: {},

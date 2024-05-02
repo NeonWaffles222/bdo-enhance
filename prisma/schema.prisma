@@ -8,16 +8,39 @@ datasource db {
 }
 
 model MarketItem {
-  id            Int    @id @unique
+  id            Int       @id @unique
   name          String
   current_stock BigInt
   total_trades  BigInt
   base_price    BigInt
   main_category Int
   sub_category  Int
+  item_sid      itemSid[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   @@map("market_items")
+}
+
+model itemSid {
+  id              Int        @id @default(autoincrement())
+  item_id         Int
+  sid             Int
+  name            String
+  min_enhance     Int
+  max_enhance     Int
+  base_price      BigInt
+  current_stock   BigInt
+  total_trades    BigInt
+  price_min       BigInt
+  price_max       BigInt
+  last_sold_price BigInt
+  last_sold_time  DateTime
+  market_item     MarketItem @relation(fields: [item_id], references: [id])
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("item_sids")
 }
