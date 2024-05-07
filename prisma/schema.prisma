@@ -27,7 +27,7 @@ model itemSid {
   id              Int        @id @default(autoincrement())
   item_id         Int
   sid             Int
-  name            String
+  name            String     @unique
   min_enhance     Int
   max_enhance     Int
   base_price      BigInt
