@@ -1,7 +1,13 @@
 const { PrismaClient } = require('@prisma/client');
+const Bottleneck = require('bottleneck');
 
 const prisma = new PrismaClient();
 
+// limiter to prevent rate limiting
+const limiter = new Bottleneck({
+  maxConcurrent: 10,
+  minTime: 50
+});
 
 async function main() {
 
@@ -14,35 +20,15 @@ async function main() {
   console.log("Seeding Market Items...");
   await seedItems(items);
   let end = new Date();
-  console.log("Seededing done in: ", (end - start) / 1000, " seconds.");
+  console.log("Seeding done in: ", (end - start) / 1000, " seconds.");
 
-  // start = new Date();
-  // console.log("Seeding Market Item SIDs...");
-  // let itemIds = [];
-  // for (let item of items) {
-  //   itemIds.push(item.id);
-  // }
-  // await seedItemSids(itemIds);
-  // end = new Date();
-  // console.log("Seededing done in: ", (end - start) / 1000, " seconds.");
+  console.log("Seeding Market Item SIDs...");
+  let itemIds = [];
+  for (let item of items) {
+    itemIds.push(item.id);
+  }
+  await seedItemSids(itemIds);
 
-
-
-  // let itemCount = 0;
-
-  // for (let item of items) {
-  //   // category 20 is accessories
-  //   // sid seeding breaks if we try to seed all items at once (fix later)
-  //   // takes 1 hour to seed all items so dont remove if statement
-  //   if (item.mainCategory == 20) {
-  //     // seeds item data for item
-  //     await seedItem(item);
-  //     // seeds sid data for item 
-  //     await seedItemSid(item.id);
-
-  //     itemCount++;
-  //   }
-  // }
 }
 
 async function getMarketItems() {
@@ -98,17 +84,17 @@ async function seedItem(item) {
   });
 }
 
-async function seedItemSids(itemIds) {
-  // seeds sid data for item
-  let itemSids = await getItemSids(itemIds);
-  let promises = [];
+// async function seedItemSids(itemIds) {
+//   // seeds sid data for item
+//   let itemSids = await getItemSids(itemIds);
+//   let promises = [];
 
-  for (let itemSid of itemSids) {
-    promises.push(seedItemSid(itemSid));
-  }
+//   for (let itemSid of itemSids) {
+//     promises.push(seedItemSid(itemSid));
+//   }
 
-  await Promise.all(promises);
-}
+//   await Promise.all(promises);
+// }
 
 async function seedItemSid(sid) {
   let date = new Date(sid.lastSoldTime * 1000);
@@ -144,34 +130,64 @@ async function seedItemSid(sid) {
   });
 }
 
-async function getItemSids(itemIds) {
+async function seedItemSids(itemIds) {
   // fetches item SID data for a given item ID
 
-  let allPromises = [];
-  let itemSids = [];
   let promises = [];
 
   for (let itemId of itemIds) {
-    if (itemId == 20) {
-      promises.push(fetchItemSid(itemId));
-      if (promises.length >= 10) {
-        allPromises.push(promises);
-        promises = [];
-      }
-    }
-  }
-  for (let promises of allPromises) {
-    await Promise.all(promises).then(values => {
-      for (let value of values) {
+    limiter.schedule(fetchItemSid, itemId)
+      .then(value => {
         for (let sid of value) {
-          itemSids.push(sid);
+          promises.push(seedItemSid(sid));
         }
-      }
-    });
+      })
+      .then(() => {
+        Promise.all(promises);
+        // console.log(`Seeded ${promises.length} SIDs.`);
+        promises = [];
+      })
+      .catch(err => {
+        console.error("An error occurred while attempting to fetch item SID data for item: ", itemId, err);
+        setTimeout(() => {
+          retrySeedItemSid(itemId, 1);
+        }, 1000);
+      });
   }
 
-  return itemSids;
+  console.log("All SID promises scheduled.");
 
+  return;
+}
+
+async function retrySeedItemSid(itemId, count) {
+  // attempts to fetches item SID data for a given item ID if it fails
+  let promises = [];
+
+
+  if (count < 3) {
+    console.log(`Retrying SID seeding for item: ${itemId}. Attempt: ${count}`);
+    limiter.schedule(fetchItemSid, itemId)
+      .then(value => {
+        for (let sid of value) {
+          promises.push(seedItemSid(sid));
+        }
+      })
+      .then(() => {
+        Promise.all(promises);
+        // console.log(`Seeded ${promises.length} SIDs.`);
+        promises = [];
+      })
+      .catch(err => {
+        console.error("An error occurred while attempting to fetch item SID data for item: ", itemId, err);
+        count++;
+        setTimeout(() => {
+          retrySeedItemSid(itemId, count);
+        }, 1000);
+      });
+  }
+
+  return;
 }
 
 async function fetchItemSid(itemId) {
@@ -179,25 +195,47 @@ async function fetchItemSid(itemId) {
 
   let itemSid = [];
 
-  await fetch(`https://api.arsha.io/v2/na/item?id=${itemId}&lang=en`, { method: 'GET' })
-    .then(res => res.text())
-    .then(result => JSON.parse(result))
-    .then(data => {
-      console.log("Fetched SID data for item: ", itemId);
-      if (Array.isArray(data)) {
-        for (let sid of data) {
-          itemSid.push(sid);
+  return new Promise((resolve, reject) => {
+    fetch(`https://api.arsha.io/v2/na/item?id=${itemId}&lang=en`, { method: 'GET' })
+      .then(res => res.text())
+      .then(result => JSON.parse(result))
+      .then(data => {
+        // console.log("Fetched SID data for item: ", itemId);
+        if (Array.isArray(data)) {
+          for (let sid of data) {
+            itemSid.push(sid);
+          }
+        } else {
+          itemSid.push(data);
         }
-      } else {
-        itemSid.push(data);
-      }
-    })
-    .catch(err => {
-      console.error(`An error occurred while attempting to fetch item SID data for item: ${itemId}:`, err);
-      return null;
-    });
+        resolve(itemSid);
+      })
+      .catch(err => {
+        console.error(`An error occurred while attempting to fetch item SID data for item: ${itemId}:`, err);
+        reject(null);
+      });
+  });
 
-  return itemSid;
+  // await fetch(`https://api.arsha.io/v2/na/item?id=${itemId}&lang=en`, { method: 'GET' })
+  //   .then(res => res.text())
+  //   .then(result => JSON.parse(result))
+  //   .then(data => {
+  //     console.log("Fetched SID data for item: ", itemId);
+  //     if (Array.isArray(data)) {
+  //       for (let sid of data) {
+  //         itemSid.push(sid);
+  //       }
+  //     } else {
+  //       itemSid.push(data);
+  //     }
+  //   })
+  //   .catch(err => {
+  //     console.error(`An error occurred while attempting to fetch item SID data for item: ${itemId}:`, err);
+  //     return null;
+  //   });
+
+
+  // return itemSid;
 }
 
 main();
