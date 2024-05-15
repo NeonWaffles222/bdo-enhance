@@ -1,14 +1,16 @@
 const { PrismaClient } = require('@prisma/client');
 const Bottleneck = require('bottleneck');
-const { promises } = require('dns');
 
 const prisma = new PrismaClient();
 
 // limiter to prevent rate limiting
 const limiter = new Bottleneck({
-  maxConcurrent: 50,
-  minTime: 50
+  maxConcurrent: 20,
+  minTime: 100
 });
+
+//whole file not very dry, but it works
+//TODO: refactor to be more DRY
 
 async function main() {
 
@@ -101,55 +103,58 @@ async function seedItem(item) {
 
 async function seedItemSid(sid) {
   let date = new Date(sid.lastSoldTime * 1000);
-  await prisma.itemSid.upsert({
-    where: {
-      // very scuffed fix for duplicate sids
-      name: `+${sid.sid} ` + sid.name
-    },
-    update: {
-      base_price: sid.basePrice,
-      current_stock: sid.currentStock,
-      total_trades: sid.totalTrades,
-      price_min: sid.priceMin,
-      price_max: sid.priceMax,
-      last_sold_price: sid.lastSoldPrice,
-      last_sold_time: date
-    },
-    create: {
-      item_id: sid.id,
-      sid: sid.sid,
-      // very scuffed fix for duplicate sids
-      name: `+${sid.sid} ` + sid.name,
-      min_enhance: sid.minEnhance,
-      max_enhance: sid.maxEnhance,
-      base_price: sid.basePrice,
-      current_stock: sid.currentStock,
-      total_trades: sid.totalTrades,
-      price_min: sid.priceMin,
-      price_max: sid.priceMax,
-      last_sold_price: sid.lastSoldPrice,
-      last_sold_time: date
-    }
-  });
-
-  let promises = [];
-
-  limiter.schedule(fetchSidPrice, sid)
-    .then(value => {
-      for (let order of value) {
-        promises.push(seedSidPrice(order, sid));
+  try {
+    await prisma.itemSid.upsert({
+      where: {
+        // very scuffed fix for duplicate sids
+        name: `+${sid.sid} ` + sid.name
+      },
+      update: {
+        base_price: sid.basePrice,
+        current_stock: sid.currentStock,
+        total_trades: sid.totalTrades,
+        price_min: sid.priceMin,
+        price_max: sid.priceMax,
+        last_sold_price: sid.lastSoldPrice,
+        last_sold_time: date
+      },
+      create: {
+        item_id: sid.id,
+        sid: sid.sid,
+        // very scuffed fix for duplicate sids
+        name: `+${sid.sid} ` + sid.name,
+        min_enhance: sid.minEnhance,
+        max_enhance: sid.maxEnhance,
+        base_price: sid.basePrice,
+        current_stock: sid.currentStock,
+        total_trades: sid.totalTrades,
+        price_min: sid.priceMin,
+        price_max: sid.priceMax,
+        last_sold_price: sid.lastSoldPrice,
+        last_sold_time: date
       }
-    })
-    .then(() => {
-      Promise.all(promises);
-      promises = [];
-    })
-    .catch(err => {
-      console.error("An error occurred while attempting to fetch SID price data for SID: ", sid.sid, err);
-      setTimeout(() => {
-        retrySeedSidPrice(sid, 1);
-      }, 1000);
     });
+    let promises = [];
+
+    limiter.schedule(fetchSidPrice, sid)
+      .then(value => {
+        for (let order of value) {
+          promises.push(seedSidPrice(order, sid));
+        }
+      })
+      .then(() => {
+        Promise.all(promises);
+        promises = [];
+      })
+      .catch(err => {
+        console.error("An error occurred while attempting to fetch SID price data for SID: ", sid.sid, err);
+        setTimeout(() => {
+          retrySeedSidPrice(sid, 1);
+        }, 1000);
+      });
+  } catch (e) {
+    console.error("An error occurred while attempting to seed SID: ", `+${sid.sid} ` + sid.name, e.code);
+  }
 }
 
 async function seedItemSids(itemIds) {
@@ -249,7 +254,7 @@ async function fetchSidPrice(sid) {
         resolve(data.orders);
       })
       .catch(err => {
-        console.error("An error occurred while attempting to fetch SID price data for SID: ", sid.sid, err);
+        console.error("An error occurred while attempting to fetch SID price data for SID: ", sid.id, err);
         reject(null);
       });
   });
@@ -260,7 +265,7 @@ async function retrySeedSidPrice(sid, count) {
   let promises = [];
 
   if (count < 3) {
-    console.log(`Retrying SID price seeding for SID: ${sid.sid}. Attempt: ${count}`);
+    console.log(`Retrying SID price seeding for SID: ${sid.id}. Attempt: ${count}`);
     limiter.schedule(fetchSidPrice, sid)
       .then(value => {
         for (let order of value) {
