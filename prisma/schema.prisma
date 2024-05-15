@@ -35,6 +35,7 @@ model itemSid {
   total_trades    BigInt
   price_min       BigInt
   price_max       BigInt
+  sid_price       sidPrice[]
   last_sold_price BigInt
   last_sold_time  DateTime
   market_item     MarketItem @relation(fields: [item_id], references: [id])
@@ -43,4 +44,18 @@ model itemSid {
   updated_at DateTime @updatedAt
 
   @@map("item_sids")
+}
+
+model sidPrice {
+  id          Int     @id @default(autoincrement())
+  sid_id      Int
+  price       BigInt
+  buy_orders  Int
+  sell_orders Int
+  item_sid    itemSid @relation(fields: [sid_id], references: [id])
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("sid_prices")
 }

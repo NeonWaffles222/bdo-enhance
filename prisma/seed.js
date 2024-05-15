@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 // limiter to prevent rate limiting
 const limiter = new Bottleneck({
-  maxConcurrent: 10,
+  maxConcurrent: 50,
   minTime: 50
 });
 
@@ -25,7 +25,9 @@ async function main() {
   console.log("Seeding Market Item SIDs...");
   let itemIds = [];
   for (let item of items) {
-    itemIds.push(item.id);
+    if (item.mainCategory === 20) {
+      itemIds.push(item.id);
+    }
   }
   await seedItemSids(itemIds);
 
