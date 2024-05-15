@@ -48,6 +48,7 @@ model itemSid {
 
 model sidPrice {
   id          Int     @id @default(autoincrement())
+  name        String  @unique
   sid_id      Int
   price       BigInt
   buy_orders  Int

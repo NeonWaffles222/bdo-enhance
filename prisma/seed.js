@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const Bottleneck = require('bottleneck');
+const { promises } = require('dns');
 
 const prisma = new PrismaClient();
 
@@ -25,9 +26,9 @@ async function main() {
   console.log("Seeding Market Item SIDs...");
   let itemIds = [];
   for (let item of items) {
-    if (item.mainCategory === 20) {
-      itemIds.push(item.id);
-    }
+    // if (item.mainCategory === 20) {
+    itemIds.push(item.id);
+    // }
   }
   await seedItemSids(itemIds);
 
@@ -130,6 +131,25 @@ async function seedItemSid(sid) {
       last_sold_time: date
     }
   });
+
+  let promises = [];
+
+  limiter.schedule(fetchSidPrice, sid)
+    .then(value => {
+      for (let order of value) {
+        promises.push(seedSidPrice(order, sid));
+      }
+    })
+    .then(() => {
+      Promise.all(promises);
+      promises = [];
+    })
+    .catch(err => {
+      console.error("An error occurred while attempting to fetch SID price data for SID: ", sid.sid, err);
+      setTimeout(() => {
+        retrySeedSidPrice(sid, 1);
+      }, 1000);
+    });
 }
 
 async function seedItemSids(itemIds) {
@@ -217,27 +237,78 @@ async function fetchItemSid(itemId) {
         reject(null);
       });
   });
+}
 
-  // await fetch(`https://api.arsha.io/v2/na/item?id=${itemId}&lang=en`, { method: 'GET' })
-  //   .then(res => res.text())
-  //   .then(result => JSON.parse(result))
-  //   .then(data => {
-  //     console.log("Fetched SID data for item: ", itemId);
-  //     if (Array.isArray(data)) {
-  //       for (let sid of data) {
-  //         itemSid.push(sid);
-  //       }
-  //     } else {
-  //       itemSid.push(data);
-  //     }
-  //   })
-  //   .catch(err => {
-  //     console.error(`An error occurred while attempting to fetch item SID data for item: ${itemId}:`, err);
-  //     return null;
-  //   });
+async function fetchSidPrice(sid) {
+  // fetches SID price data for a given SID
+  return new Promise((resolve, reject) => {
+    fetch(`https://api.arsha.io/v2/na/GetBiddingInfoList?id=${sid.id}&sid=${sid.sid}`)
+      .then(res => res.text())
+      .then(result => JSON.parse(result))
+      .then(data => {
+        resolve(data.orders);
+      })
+      .catch(err => {
+        console.error("An error occurred while attempting to fetch SID price data for SID: ", sid.sid, err);
+        reject(null);
+      });
+  });
+}
 
+async function retrySeedSidPrice(sid, count) {
+  // attempts to fetches SID price data for a given SID if it fails
+  let promises = [];
 
-  // return itemSid;
+  if (count < 3) {
+    console.log(`Retrying SID price seeding for SID: ${sid.sid}. Attempt: ${count}`);
+    limiter.schedule(fetchSidPrice, sid)
+      .then(value => {
+        for (let order of value) {
+          promises.push(seedSidPrice(order));
+        }
+      })
+      .then(() => {
+        Promise.all(promises);
+        promises = [];
+      })
+      .catch(err => {
+        console.error("An error occurred while attempting to fetch SID price data for SID: ", sid.sid, err);
+        count++;
+        setTimeout(() => {
+          retrySeedSidPrice(sid, count);
+        }, 1000);
+      });
+  }
+
+  return;
+
+}
+
+async function seedSidPrice(order, sid) {
+
+  const itemSid = await prisma.itemSid.findUnique({
+    where: {
+      name: `+${sid.sid} ` + sid.name
+    }
+  });
+
+  await prisma.sidPrice.upsert({
+    where: {
+      name: `+${sid.sid} ` + sid.name + ` ${order.price}`
+    },
+    update: {
+      price: order.price,
+      buy_orders: order.buyers,
+      sell_orders: order.sellers,
+    },
+    create: {
+      name: `+${sid.sid} ` + sid.name + ` ${order.price}`,
+      sid_id: itemSid.id,
+      price: order.price,
+      buy_orders: order.buyers,
+      sell_orders: order.sellers,
+    }
+  });
 }
 
 main();
